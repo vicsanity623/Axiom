@@ -64,8 +64,88 @@ def extract_entities(question: str) -> List[str]:
     
     return list(set(entities))
 
+def filter_relevant_facts(question: str, facts: List[Dict[str, Any]], question_analysis: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Filter facts to only include those that are actually relevant to the question."""
+    if not facts:
+        return []
+    
+    question_lower = question.lower()
+    question_type = question_analysis.get('question_type', 'general')
+    entities = question_analysis.get('entities', [])
+    
+    relevant_facts = []
+    
+    for fact in facts:
+        content = fact.get('content', '').lower()
+        similarity = fact.get('similarity', 0)
+        
+        # Skip facts with very low similarity
+        if similarity < 0.4:
+            continue
+            
+        # For person questions, be extra strict about relevance
+        if question_type == 'person':
+            if not is_fact_about_person(content, question_lower, entities):
+                continue
+        
+        # For general questions, check if the fact actually relates to the question
+        elif not is_fact_relevant_to_question(content, question_lower, entities):
+            continue
+            
+        relevant_facts.append(fact)
+    
+    return relevant_facts
+
+def is_fact_about_person(fact_content: str, question: str, entities: List[str]) -> bool:
+    """Check if a fact is actually about the person being asked about."""
+    # Extract the main person from the question
+    person_keywords = []
+    for entity in entities:
+        if entity.lower() in ['donald trump', 'trump', 'biden', 'joe biden']:
+            person_keywords.append(entity.lower())
+    
+    # If no specific person entities, try to extract from question
+    if not person_keywords:
+        if 'trump' in question:
+            person_keywords = ['trump', 'donald trump']
+        elif 'biden' in question:
+            person_keywords = ['biden', 'joe biden']
+    
+    # Check if the fact is actually about this person
+    for keyword in person_keywords:
+        if keyword in fact_content:
+            # Make sure it's not just a tangential mention
+            # The fact should be primarily about this person
+            words = fact_content.split()
+            if len(words) > 10:  # For longer facts, the person should be mentioned early
+                first_half = ' '.join(words[:len(words)//2])
+                if keyword in first_half:
+                    return True
+            else:
+                return True
+    
+    return False
+
+def is_fact_relevant_to_question(fact_content: str, question: str, entities: List[str]) -> bool:
+    """Check if a fact is relevant to the question being asked."""
+    # Extract key terms from the question
+    question_words = set(question.split())
+    
+    # Remove common words
+    common_words = {'what', 'who', 'when', 'where', 'why', 'how', 'is', 'are', 'was', 'were', 'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+    question_keywords = question_words - common_words
+    
+    # Check if the fact contains relevant keywords
+    fact_words = set(fact_content.split())
+    
+    # Count how many question keywords appear in the fact
+    matching_keywords = question_keywords.intersection(fact_words)
+    
+    # If at least 2 keywords match, consider it relevant
+    return len(matching_keywords) >= 2
+
 def synthesize_intelligent_answer(question: str, facts: List[Dict[str, Any]], question_analysis: Dict[str, Any]) -> Dict[str, Any]:
-    """Synthesize an intelligent answer from facts."""
+    """Synthesize an intelligent answer from facts with improved relevance filtering."""
     
     if not facts:
         return {
@@ -74,10 +154,64 @@ def synthesize_intelligent_answer(question: str, facts: List[Dict[str, Any]], qu
             'answer_type': 'no_data'
         }
     
+    # Filter facts for relevance to the actual question (inline implementation)
+    relevant_facts = []
+    question_lower = question.lower()
+    question_type = question_analysis.get('question_type', 'general')
+    
+    for fact in facts:
+        content = fact.get('content', '').lower()
+        similarity = fact.get('similarity', 0)
+        
+        # Skip facts with very low similarity
+        if similarity < 0.4:
+            continue
+            
+        # For person questions, be extra strict about relevance
+        if question_type == 'person':
+            # Check if fact is actually about the person being asked about
+            if 'trump' in question_lower and 'trump' in content:
+                # Make sure it's not just a tangential mention
+                words = content.split()
+                if len(words) > 10:  # For longer facts, the person should be mentioned early
+                    first_half = ' '.join(words[:len(words)//2])
+                    if 'trump' in first_half:
+                        relevant_facts.append(fact)
+                else:
+                    relevant_facts.append(fact)
+            elif 'biden' in question_lower and 'biden' in content:
+                # Similar check for Biden
+                words = content.split()
+                if len(words) > 10:
+                    first_half = ' '.join(words[:len(words)//2])
+                    if 'biden' in first_half:
+                        relevant_facts.append(fact)
+                else:
+                    relevant_facts.append(fact)
+        else:
+            # For general questions, check if the fact actually relates to the question
+            question_words = set(question_lower.split())
+            common_words = {'what', 'who', 'when', 'where', 'why', 'how', 'is', 'are', 'was', 'were', 'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+            question_keywords = question_words - common_words
+            fact_words = set(content.split())
+            matching_keywords = question_keywords.intersection(fact_words)
+            
+            # If at least 2 keywords match, consider it relevant
+            if len(matching_keywords) >= 2:
+                relevant_facts.append(fact)
+    
+    if not relevant_facts:
+        return {
+            'answer': f"I found some information in the database, but none of it appears to be directly relevant to your question about '{question}'. The available facts don't provide a clear answer.",
+            'confidence': 0.0,
+            'answer_type': 'no_relevant_data'
+        }
+    
     # Sort facts by relevance/confidence
-    sorted_facts = sorted(facts, key=lambda x: x.get('similarity', 0) + x.get('confidence', 0), reverse=True)
+    sorted_facts = sorted(relevant_facts, key=lambda x: x.get('similarity', 0) + x.get('confidence', 0), reverse=True)
     
     question_type = question_analysis.get('question_type', 'general')
+    entities = question_analysis.get('entities', [])
     
     if question_type == 'sec_companies':
         # Handle SEC company questions
@@ -103,6 +237,47 @@ def synthesize_intelligent_answer(question: str, facts: List[Dict[str, Any]], qu
                 'answer': answer,
                 'confidence': confidence,
                 'answer_type': 'sec_companies_list'
+            }
+    
+    elif question_type == 'person':
+        # Handle person questions - be very careful about relevance
+        person_facts = []
+        question_lower = question.lower()
+        
+        for fact in sorted_facts:
+            content = fact.get('content', '').lower()
+            # Only include facts that are actually about the person being asked about
+            # (using inline logic since helper function isn't accessible)
+            person_mentioned = False
+            if 'trump' in question_lower and 'trump' in content:
+                words = content.split()
+                if len(words) > 10:
+                    first_half = ' '.join(words[:len(words)//2])
+                    if 'trump' in first_half:
+                        person_mentioned = True
+                else:
+                    person_mentioned = True
+            elif 'biden' in question_lower and 'biden' in content:
+                words = content.split()
+                if len(words) > 10:
+                    first_half = ' '.join(words[:len(words)//2])
+                    if 'biden' in first_half:
+                        person_mentioned = True
+                else:
+                    person_mentioned = True
+            
+            if person_mentioned:
+                person_facts.append(fact)
+        
+        if person_facts:
+            # Use the most relevant fact
+            best_fact = person_facts[0]
+            answer = f"According to verified sources: {best_fact.get('content', '')}"
+            confidence = best_fact.get('similarity', 0.5)
+            return {
+                'answer': answer,
+                'confidence': confidence,
+                'answer_type': 'person_fact'
             }
     
     elif question_type == 'quotes_statements':
@@ -141,21 +316,21 @@ def synthesize_intelligent_answer(question: str, facts: List[Dict[str, Any]], qu
                 'answer_type': 'quantity_answer'
             }
     
-    # Default intelligent synthesis
-    top_facts = sorted_facts[:3]
-    if len(top_facts) == 1:
-        answer = f"According to verified sources: {top_facts[0].get('content', '')}"
-        confidence = top_facts[0].get('similarity', 0.5)
-    else:
-        # Combine multiple facts
-        fact_contents = [f.get('content', '') for f in top_facts]
-        answer = f"Based on multiple verified sources: {' '.join(fact_contents[:2])}"
-        confidence = sum(f.get('similarity', 0.5) for f in top_facts) / len(top_facts)
+    # Default intelligent synthesis - use only the most relevant fact
+    if sorted_facts:
+        best_fact = sorted_facts[0]
+        answer = f"According to verified sources: {best_fact.get('content', '')}"
+        confidence = best_fact.get('similarity', 0.5)
+        return {
+            'answer': answer,
+            'confidence': confidence,
+            'answer_type': 'fact_synthesis'
+        }
     
     return {
-        'answer': answer,
-        'confidence': min(confidence, 0.9),
-        'answer_type': 'fact_synthesis'
+        'answer': f"I couldn't find any verified information about '{question}'. The Axiom network doesn't have sufficient data to answer this question.",
+        'confidence': 0.0,
+        'answer_type': 'no_data'
     }
 
 def handle_enhanced_chat() -> Response | tuple[Response, int]:
@@ -193,17 +368,17 @@ def handle_enhanced_chat() -> Response | tuple[Response, int]:
                     fact_indexer = FactIndexer(session)
                     logger.info("Created new fact indexer")
                 
-                # Find closest facts using the indexer
-                closest_facts = fact_indexer.find_closest_facts(question, top_n=5, min_similarity=0.3)
-                logger.info(f"Found {len(closest_facts)} facts")
+                # Find closest facts using the indexer with higher similarity threshold
+                closest_facts = fact_indexer.find_closest_facts(question, top_n=5, min_similarity=0.5)
+                logger.info(f"Found {len(closest_facts)} facts with similarity >= 0.5")
                 
                 if not closest_facts and use_intelligent_search:
-                    # Try with different search terms
+                    # Try with different search terms, but still maintain high threshold
                     keywords = parse_query_advanced(question)
                     logger.info(f"Trying keywords: {keywords}")
                     if keywords:
                         for keyword in keywords[:3]:  # Try first 3 keywords
-                            keyword_facts = fact_indexer.find_closest_facts(keyword, top_n=3, min_similarity=0.2)
+                            keyword_facts = fact_indexer.find_closest_facts(keyword, top_n=3, min_similarity=0.4)
                             if keyword_facts:
                                 closest_facts.extend(keyword_facts)
                                 logger.info(f"Found {len(keyword_facts)} facts with keyword '{keyword}'")
@@ -358,14 +533,14 @@ def handle_analyze_question() -> Response | tuple[Response, int]:
 
     try:
         # Analyze the question
-        analysis = search_engine.understand_question(question)
+        analysis = analyze_question_type(question)
 
         return jsonify(
             {
                 "question": question,
                 "analysis": analysis,
-                "suggested_search_terms": analysis["entities"],
-                "expected_answer_type": analysis["expected_answer_type"],
+                "suggested_search_terms": analysis.get("entities", []),
+                "expected_answer_type": analysis.get("question_type", "general"),
             },
         )
 

@@ -99,7 +99,7 @@ class FactIndexer:
         self,
         query_text: str,
         top_n: int = 3,
-        min_similarity: float = 0.45,  # Lowered threshold for faster, more inclusive results
+        min_similarity: float = 0.6,  # Higher threshold for more relevant results
     ) -> list[dict[str, Any]]:
         """Perform ULTRA-FAST search using intelligent keyword extraction."""
         # Enhanced keyword extraction
@@ -130,47 +130,54 @@ class FactIndexer:
         # Enhanced scoring based on multiple factors
         scored_facts = []
         query_lower = query_text.lower()
+        query_words = set(query_lower.split())
 
         for fact in candidate_facts:
             fact_lower = fact.content.lower()
+            fact_words = set(fact_lower.split())
             
-            # Factor 1: Keyword match count
+            # Factor 1: Keyword match count (most important)
             keyword_matches = sum(
                 1 for keyword in keywords if keyword.lower() in fact_lower
             )
             
-            # Factor 2: Exact phrase matching
-            exact_phrase_score = 0
-            query_words = query_text.split()
-            if len(query_words) > 1:
-                for i in range(len(query_words) - 1):
-                    phrase = f"{query_words[i]} {query_words[i+1]}"
-                    if phrase.lower() in fact_lower:
-                        exact_phrase_score += 0.3
+            # Factor 2: Word overlap between query and fact
+            word_overlap = len(query_words.intersection(fact_words))
+            word_overlap_score = word_overlap / len(query_words) if query_words else 0
             
-            # Factor 3: Source quality
+            # Factor 3: Exact phrase matching
+            exact_phrase_score = 0
+            query_words_list = query_text.split()
+            if len(query_words_list) > 1:
+                for i in range(len(query_words_list) - 1):
+                    phrase = f"{query_words_list[i]} {query_words_list[i+1]}"
+                    if phrase.lower() in fact_lower:
+                        exact_phrase_score += 0.2
+            
+            # Factor 4: Source quality (penalize low-quality sources)
             source_score = 0
             if fact.sources:
-                authoritative_sources = ['reuters.com', 'ap.org', 'bbc.com', 'cnn.com', 'nytimes.com']
+                authoritative_sources = ['reuters.com', 'ap.org', 'bbc.com', 'cnn.com', 'nytimes.com', 'sec.gov']
+                low_quality_sources = ['kuumbareport.com', 'blogspot.com', 'wordpress.com']
+                
                 for source in fact.sources:
                     if source.domain in authoritative_sources:
-                        source_score += 0.2
+                        source_score += 0.1
+                    elif source.domain in low_quality_sources:
+                        source_score -= 0.2  # Penalize low-quality sources
             
-            # Factor 4: Fact status quality
+            # Factor 5: Fact status quality
             status_score = 0
             if fact.status == FactStatus.EMPIRICALLY_VERIFIED:
-                status_score = 0.3
-            elif fact.status == FactStatus.CORROBORATED:
                 status_score = 0.2
-            elif fact.status == FactStatus.LOGICALLY_CONSISTENT:
+            elif fact.status == FactStatus.CORROBORATED:
                 status_score = 0.1
+            elif fact.status == FactStatus.LOGICALLY_CONSISTENT:
+                status_score = 0.05
             
-            # Factor 5: Content length and quality
-            content_score = min(len(fact.content.split()) / 50, 0.2)  # Prefer longer, more detailed facts
-            
-            # Calculate overall score
+            # Calculate overall score with emphasis on relevance
             base_score = keyword_matches / len(keywords) if keywords else 0
-            total_score = base_score + exact_phrase_score + source_score + status_score + content_score
+            total_score = (base_score * 0.5) + (word_overlap_score * 0.3) + exact_phrase_score + source_score + status_score
             
             if total_score > 0:
                 scored_facts.append((total_score, fact))
