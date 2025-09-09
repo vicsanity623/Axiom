@@ -1,9 +1,3 @@
-Of course. I've corrected the formatting, fixed structural issues like inconsistent numbering and list formats, and improved the clarity of the technical setup instructions. The file will now render correctly on GitHub.
-
-Here is the fixed `README.md` file:
-
----
-
 # Axiom: A Decentralized Network for Verifiable Truth - A Grounding Engine
 
 ![Axiom Logo](https://raw.githubusercontent.com/vicsanity623/Axiom/1c11131a1a88cdcbcf24e3cfc3ecfe3528ff4852/main/Axiom_logo.PNG)
@@ -132,13 +126,13 @@ Your environment is now complete. To simplify local development, you can launch 
 
 2.  **Start the Bootstrap Node (Network Hub):** In your first terminal, run:
     ```bash
-    ./reset_and_start.sh
+    ./reset_all_and_start.sh
     ```
     This script will clean existing data, generate new keys, and start the bootstrap node in the foreground. It will begin discovering facts and creating blocks immediately.
 
-3.  **Start the Peer Node:** After the bootstrap node has been running for ~2 minutes, open a **new terminal** and run:
+3.  **If you close the terminals you can resume all nodes using this command:
     ```bash
-    ./start_peer_after_bootstrap.sh
+    ./resume_all_nodes.sh
     ```
     This will start a peer node that connects to the bootstrap and syncs the blockchain.
 
@@ -149,8 +143,6 @@ Your environment is now complete. To simplify local development, you can launch 
     Once the client connects, you can start asking questions at the `You:` prompt.
 
 **Alternative Node Management Scripts:**
-- **Resume Nodes:** To restart nodes while keeping existing data, use `./resume_nodes.sh` and `./resume_peer.sh`.
-- **Fact Reporting:** To inspect recorded facts, `cd factReports` and run `python fact_reporter.py`.
 - **Feed Maintenance:** To fix RSS feeds, run `python maintain_feeds.py` from the project root.
 
 You are now ready to develop and test on a live, local Axiom network!
