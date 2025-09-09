@@ -1,5 +1,0 @@
-[console_scripts]
-axiom_server = axiom_server.node:cli_run
-
-[gui_scripts]
-axiom_client = axiom_client.main:cli_run
